@@ -1,2 +1,6 @@
 main
+debug
+
 export-file-tags.db*
+
+.vscode*
