@@ -71,7 +71,7 @@ func main() {
 			continue
 		}
 
-		// otherwise, save to bolt
+		// otherwise, marshal to json
 		tagsAsJSON, err := json.Marshal(tags)
 		if err != nil {
 			log.Printf("%s: %v\n", filepath, err)
