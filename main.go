@@ -15,6 +15,11 @@ import (
 	"github.com/mostlygeek/go-exiftool"
 )
 
+type tagsKV struct {
+	filePath string
+	tags     interface{}
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		log.Fatal("must specify a directory")
@@ -42,14 +47,25 @@ func main() {
 	})
 
 	// get all files
-	fileList := []string{}
+	filePaths := []string{}
 	filepath.Walk(directory, func(path string, f os.FileInfo, err error) error {
-		fileList = append(fileList, path)
+		filePaths = append(filePaths, path)
 		return nil
 	})
 
+	tags := make(chan tagsKV, 150)
+	finished := make(chan bool)
+
+	go tagsProcessor(tags, finished, boltDB)
+
+	go tagsReader(tags, filePaths)
+
+	<-finished
+}
+
+func tagsReader(tagsChan chan tagsKV, filePaths []string) {
 	// loop through the files
-	for _, filepath := range fileList {
+	for _, filepath := range filePaths {
 		// try to get the metadata of the file
 		metadata, err := exiftool.Extract(filepath)
 		// if an error or no metadata, skip the file
@@ -71,14 +87,46 @@ func main() {
 			continue
 		}
 
-		// otherwise, marshal to json
-		tagsAsJSON, err := json.Marshal(tags)
+		log.Printf("sending -->> %s :: %v\n", filepath, tags)
+		tagsChan <- tagsKV{filepath, tags}
+	}
+
+	close(tagsChan)
+}
+
+func tagsProcessor(tagsPipe chan tagsKV, finished chan bool, boltDB *bolt.DB) {
+	// start a database transaction
+	tx, err := boltDB.Begin(true)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer tx.Rollback()
+
+	// get the bucket
+	bucket := tx.Bucket([]byte("tags"))
+
+	// loop for tags received on the channel
+	for {
+		input, more := <-tagsPipe
+		if !more {
+			log.Println("finished")
+			finished <- true
+			close(finished)
+			return
+		}
+
+		log.Printf("received <<-- %s\n", input.filePath)
+
+		// marshal to json
+		tagsAsJSON, err := json.Marshal(input.tags)
 		if err != nil {
-			log.Printf("%s: %v\n", filepath, err)
+			log.Printf("%v: %v\n", err, input)
 			continue
 		}
 
-		// TODO save to bolt
-		log.Println(string(tagsAsJSON))
+		// save to bolt
+		bucket.Put([]byte(input.filePath), tagsAsJSON)
+		tx.Commit()
+		log.Printf("saved %s :: %s\n", input.filePath, tagsAsJSON)
 	}
 }
