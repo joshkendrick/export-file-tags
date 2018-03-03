@@ -1,6 +1,9 @@
+# binaries
 main
 debug
+exporter.exe
 
+# database
 export-file-tags.db*
 
 .vscode*
