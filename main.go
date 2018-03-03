@@ -119,7 +119,7 @@ func tagsReader(tagsChan chan<- tagsKV, finished chan<- bool, dirPath string) {
 
 		// if still no tags found, log and skip
 		if tags == nil {
-			log.Printf("******NO TAGS FOUND****** %s\n", filepath)
+			log.Printf("******TAGS NOT FOUND****** %s\n", filepath)
 			continue
 		}
 
