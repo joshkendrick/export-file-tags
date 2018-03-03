@@ -83,7 +83,7 @@ func tagsReader(tagsChan chan tagsKV, filePaths []string) {
 
 		// if still no tags found, log and skip
 		if tags == nil {
-			log.Printf("**NO TAGS FOUND**    %s\n", filepath)
+			log.Printf("******NO TAGS FOUND****** %s\n", filepath)
 			continue
 		}
 
@@ -95,22 +95,25 @@ func tagsReader(tagsChan chan tagsKV, filePaths []string) {
 }
 
 func tagsProcessor(tagsPipe chan tagsKV, finished chan bool, boltDB *bolt.DB) {
+	count := 0
+
 	// loop for tags received on the channel
 	for {
 		input, more := <-tagsPipe
 		if !more {
-			log.Println("finished")
+			log.Printf("finished: %d tagsets processed\n", count)
 			finished <- true
 			close(finished)
 			return
 		}
 
 		log.Printf("received <<-- %s\n", input.filePath)
+		count++
 
 		// marshal to json
 		tagsAsJSON, err := json.Marshal(input.tags)
 		if err != nil {
-			log.Printf("%v: %v\n", err, input)
+			log.Printf("!!ERROR!!     %v: %v\n", err, input)
 			continue
 		}
 
@@ -122,9 +125,9 @@ func tagsProcessor(tagsPipe chan tagsKV, finished chan bool, boltDB *bolt.DB) {
 		})
 
 		if err == nil {
-			log.Printf("saved %s :: %s\n", input.filePath, tagsAsJSON)
+			log.Printf("saved         %s :: %s\n", input.filePath, tagsAsJSON)
 		} else {
-			log.Printf("error: %s :: %v\n", input.filePath, err)
+			log.Printf("!!ERROR!!     %v: %s\n", err, input.filePath)
 		}
 	}
 }
