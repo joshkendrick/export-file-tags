@@ -95,16 +95,6 @@ func tagsReader(tagsChan chan tagsKV, filePaths []string) {
 }
 
 func tagsProcessor(tagsPipe chan tagsKV, finished chan bool, boltDB *bolt.DB) {
-	// start a database transaction
-	tx, err := boltDB.Begin(true)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer tx.Rollback()
-
-	// get the bucket
-	bucket := tx.Bucket([]byte("tags"))
-
 	// loop for tags received on the channel
 	for {
 		input, more := <-tagsPipe
@@ -125,8 +115,16 @@ func tagsProcessor(tagsPipe chan tagsKV, finished chan bool, boltDB *bolt.DB) {
 		}
 
 		// save to bolt
-		bucket.Put([]byte(input.filePath), tagsAsJSON)
-		tx.Commit()
-		log.Printf("saved %s :: %s\n", input.filePath, tagsAsJSON)
+		err = boltDB.Update(func(tx *bolt.Tx) error {
+			bucket := tx.Bucket([]byte("tags"))
+			err := bucket.Put([]byte(input.filePath), tagsAsJSON)
+			return err
+		})
+
+		if err == nil {
+			log.Printf("saved %s :: %s\n", input.filePath, tagsAsJSON)
+		} else {
+			log.Printf("error: %s :: %v\n", input.filePath, err)
+		}
 	}
 }
