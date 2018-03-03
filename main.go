@@ -1,5 +1,5 @@
 // Author: Josh Kendrick
-// Version: v0.0.1
+// Version: v0.0.2
 // Do whatever you want with this code
 
 package main
