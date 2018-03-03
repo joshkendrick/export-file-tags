@@ -1,9 +1,12 @@
-# Export File Tags
+## Export File Tags
 
-Small utility I'm using to export tags I've placed on my photos and videos and back them up to a bolt database so I don't lose them.
+This is a small utility to export the tags I've placed on my photos and videos and back them up to a boltDB database so they don't get lost (like when Windows changes something and I lose them, or it turns out there isn't a way to read them anymore... I don't know... it makes me feel better?)
 
-currently using exiftool v10.81
+Makes use of the [exiftool](https://www.sno.phy.queensu.ca/~phil/exiftool/) executable v10.81 (saved in this repo, and already outdated)
 
-build via https://github.com/golang/go/wiki/WindowsCrossCompiling
+I built the Windows exporter executable from reading [this](https://github.com/golang/go/wiki/WindowsCrossCompiling)
 
-really can just do `go build -o exporter.exe main.go` on a windows machine
+#### If you run this on your target machine, it will default to the correct $GOOS and $GOARCH:
+```
+go build -o exporter_v0.0.2.exe main.go
+```
