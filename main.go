@@ -5,6 +5,7 @@ package main
 
 import (
 	"encoding/json"
+	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -46,24 +47,58 @@ func main() {
 		return nil
 	})
 
-	// get all files
-	filePaths := []string{}
+	// get directories
+	directories := []string{}
 	filepath.Walk(directory, func(path string, f os.FileInfo, err error) error {
-		filePaths = append(filePaths, path)
+		if f.IsDir() {
+			directories = append(directories, path)
+		}
 		return nil
 	})
 
-	tags := make(chan tagsKV, 150)
+	tags := make(chan tagsKV, 250)
 	finished := make(chan bool)
 
 	go tagsProcessor(tags, finished, boltDB)
 
-	go tagsReader(tags, filePaths)
+	// start an exif reader per directory
+	for _, directory := range directories {
+		go tagsReader(tags, finished, directory)
+	}
 
+	// wait for the readers to finish
+	for index := 0; index < len(directories); index++ {
+		<-finished
+	}
+
+	// close the tags channel, not sending anymore
+	close(tags)
+
+	// wait for the processor to finish
 	<-finished
 }
 
-func tagsReader(tagsChan chan tagsKV, filePaths []string) {
+func tagsReader(tagsChan chan<- tagsKV, finished chan<- bool, dirPath string) {
+	// be sure to definitely report done
+	defer func() {
+		finished <- true
+	}()
+
+	// get everything in this directory
+	fileNames, err := ioutil.ReadDir(dirPath)
+	if err != nil {
+		log.Printf("!!ERROR!!     %v: %s\n", err, dirPath)
+		return
+	}
+
+	// loop through and build paths for non directories
+	filePaths := []string{}
+	for _, fileName := range fileNames {
+		if !fileName.IsDir() {
+			filePaths = append(filePaths, filepath.Join(dirPath, fileName.Name()))
+		}
+	}
+
 	// loop through the files
 	for _, filepath := range filePaths {
 		// try to get the metadata of the file
@@ -87,14 +122,12 @@ func tagsReader(tagsChan chan tagsKV, filePaths []string) {
 			continue
 		}
 
-		log.Printf("sending -->> %s :: %v\n", filepath, tags)
+		log.Printf("found   %s :: %v\n", filepath, tags)
 		tagsChan <- tagsKV{filepath, tags}
 	}
-
-	close(tagsChan)
 }
 
-func tagsProcessor(tagsPipe chan tagsKV, finished chan bool, boltDB *bolt.DB) {
+func tagsProcessor(tagsPipe <-chan tagsKV, finished chan<- bool, boltDB *bolt.DB) {
 	count := 0
 
 	// loop for tags received on the channel
@@ -107,7 +140,6 @@ func tagsProcessor(tagsPipe chan tagsKV, finished chan bool, boltDB *bolt.DB) {
 			return
 		}
 
-		log.Printf("received <<-- %s\n", input.filePath)
 		count++
 
 		// marshal to json
@@ -125,7 +157,7 @@ func tagsProcessor(tagsPipe chan tagsKV, finished chan bool, boltDB *bolt.DB) {
 		})
 
 		if err == nil {
-			log.Printf("saved         %s :: %s\n", input.filePath, tagsAsJSON)
+			log.Printf("saved   %s :: %s\n", input.filePath, input.tags)
 		} else {
 			log.Printf("!!ERROR!!     %v: %s\n", err, input.filePath)
 		}
