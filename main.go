@@ -123,6 +123,13 @@ func tagsReader(tagsChan chan<- tagsKV, finished chan<- bool, dirPath string) {
 			continue
 		}
 
+		// convert singleVal strings into an array
+		// so all values in bolt database are the same format
+		switch t := tags.(type) {
+		case string:
+			tags = []string{t}
+		}
+
 		log.Printf("found   %s :: %v\n", filepath, tags)
 		tagsChan <- tagsKV{filepath, tags}
 	}
