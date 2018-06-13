@@ -1,12 +1,11 @@
 // Author: Josh Kendrick
-// Version: v0.0.2
+// Version: v0.0.3
 // Do whatever you want with this code
 
 package main
 
 import (
 	"encoding/json"
-	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -16,11 +15,6 @@ import (
 
 	"github.com/mostlygeek/go-exiftool"
 )
-
-type tagsKV struct {
-	filePath string
-	tags     interface{}
-}
 
 func main() {
 	if len(os.Args) < 2 {
@@ -48,60 +42,53 @@ func main() {
 		return nil
 	})
 
-	// get directories
-	directories := []string{}
-	filepath.Walk(directory, func(path string, f os.FileInfo, err error) error {
-		if f.IsDir() {
-			directories = append(directories, path)
-		}
-		return nil
-	})
+	// produce the files to the channel for the consumers
+	filepaths := make(chan string, 300)
+	producedCount := 0
+	go func() {
+		filepath.Walk(directory, func(path string, f os.FileInfo, err error) error {
+			filepaths <- path
+			log.Printf("added path: %s", path)
+			producedCount++
 
-	tags := make(chan tagsKV, 250)
-	finished := make(chan bool)
-
-	go tagsProcessor(tags, finished, boltDB)
-
-	// start an exif reader per directory
-	for _, directory := range directories {
-		go tagsReader(tags, finished, directory)
-	}
-
-	// wait for the readers to finish
-	for index := 0; index < len(directories); index++ {
-		<-finished
-	}
-
-	// close the tags channel, not sending anymore
-	close(tags)
-
-	// wait for the processor to finish
-	<-finished
-}
-
-func tagsReader(tagsChan chan<- tagsKV, finished chan<- bool, dirPath string) {
-	// be sure to definitely report done
-	defer func() {
-		finished <- true
+			return nil
+		})
+		close(filepaths)
 	}()
 
-	// get everything in this directory
-	fileNames, err := ioutil.ReadDir(dirPath)
-	if err != nil {
-		log.Printf("!!ERROR!!     %v: %s\n", err, dirPath)
-		return
+	// number of processors
+	consumerCount := 20
+	// reporting channel
+	done := make(chan int, consumerCount)
+
+	// start the processors
+	for index := 0; index < consumerCount; index++ {
+		go tagsProcessor(filepaths, boltDB, done, index+1)
 	}
 
-	// loop through and build paths for non directories
-	filePaths := []string{}
-	for _, fileName := range fileNames {
-		if !fileName.IsDir() {
-			filePaths = append(filePaths, filepath.Join(dirPath, fileName.Name()))
+	// wait for processors to finish
+	consumedCount := 0
+	for index := 0; index < consumerCount; index++ {
+		consumedCount += <-done
+	}
+
+	log.Printf("produced: %d || consumed %d", producedCount, consumedCount)
+}
+
+func tagsProcessor(filepaths <-chan string, boltDB *bolt.DB, done chan<- int, id int) {
+	count := 0
+
+	// get a filepath
+	for {
+		filepath, more := <-filepaths
+		if !more {
+			log.Printf("%4d consumed %d files", id, count)
+			done <- count
+			return
 		}
-	}
 
-	// loop through the files
-	for _, filepath := range filePaths {
+		count++
+
 		// try to get the metadata of the file
 		metadata, err := exiftool.Extract(filepath)
 		// if an error or no metadata, skip the file
@@ -119,7 +106,7 @@ func tagsReader(tagsChan chan<- tagsKV, finished chan<- bool, dirPath string) {
 
 		// if still no tags found, log and skip
 		if tags == nil {
-			log.Printf("******TAGS NOT FOUND****** %s\n", filepath)
+			log.Printf("******TAGS NOT FOUND****** %s", filepath)
 			continue
 		}
 
@@ -130,44 +117,26 @@ func tagsReader(tagsChan chan<- tagsKV, finished chan<- bool, dirPath string) {
 			tags = []string{t}
 		}
 
-		log.Printf("found   %s :: %v\n", filepath, tags)
-		tagsChan <- tagsKV{filepath, tags}
-	}
-}
-
-func tagsProcessor(tagsPipe <-chan tagsKV, finished chan<- bool, boltDB *bolt.DB) {
-	count := 0
-
-	// loop for tags received on the channel
-	for {
-		input, more := <-tagsPipe
-		if !more {
-			log.Printf("finished: %d tagsets processed\n", count)
-			finished <- true
-			close(finished)
-			return
-		}
-
-		count++
+		log.Printf("%4d found tags - %s :: %v", id, filepath, tags)
 
 		// marshal to json
-		tagsAsJSON, err := json.Marshal(input.tags)
+		tagsAsJSON, err := json.Marshal(tags)
 		if err != nil {
-			log.Printf("!!ERROR!!     %v: %v\n", err, input)
+			log.Printf("%4d !!ERROR!! -- %v: %v", id, err, tags)
 			continue
 		}
 
 		// save to bolt
 		err = boltDB.Update(func(tx *bolt.Tx) error {
 			bucket := tx.Bucket([]byte("tags"))
-			err := bucket.Put([]byte(input.filePath), tagsAsJSON)
+			err := bucket.Put([]byte(filepath), tagsAsJSON)
 			return err
 		})
 
 		if err == nil {
-			log.Printf("saved   %s :: %s\n", input.filePath, input.tags)
+			log.Printf("%4d saved tags - %s :: %s", id, filepath, tags)
 		} else {
-			log.Printf("!!ERROR!!     %v: %s\n", err, input.filePath)
+			log.Printf("%4d !!ERROR!! -- %v: %s", id, err, filepath)
 		}
 	}
 }
