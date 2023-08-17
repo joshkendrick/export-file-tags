@@ -1,0 +1,22 @@
+BEGIN TRANSACTION;
+DROP TABLE IF EXISTS "tags";
+CREATE TABLE IF NOT EXISTS "tags" (
+	"tag"	TEXT NOT NULL,
+	PRIMARY KEY("tag")
+);
+DROP TABLE IF EXISTS "files";
+CREATE TABLE IF NOT EXISTS "files" (
+	"filename"	TEXT NOT NULL,
+	"path"	TEXT,
+	"tags_json"	TEXT,
+	PRIMARY KEY("filename")
+);
+DROP TABLE IF EXISTS "file_tags";
+CREATE TABLE IF NOT EXISTS "file_tags" (
+	"file"	TEXT NOT NULL,
+	"tag"	TEXT NOT NULL,
+	PRIMARY KEY("file","tag"),
+	FOREIGN KEY("file") REFERENCES "files"("filename") ON DELETE CASCADE,
+	FOREIGN KEY("tag") REFERENCES "tags"("tag") ON DELETE CASCADE
+);
+COMMIT;
