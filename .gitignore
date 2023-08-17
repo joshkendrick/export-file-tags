@@ -1,9 +1,9 @@
 # binaries
 main
 debug
-exporter.exe
+exporter_*
 
 # database
-export-file-tags.db*
+media-tags.db
 
 .vscode*
