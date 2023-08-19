@@ -1,6 +1,7 @@
 -- these are queries that ive found helpful in exploring the tags sqlite database
 SELECT COUNT(DISTINCT file) FROM file_tags;
 SELECT COUNT(DISTINCT file) AS SUMVALUE, file FROM file_tags GROUP BY file ORDER BY SUMVALUE DESC;
+SELECT COUNT(tag) AS SUMVALUE, tag FROM file_tags GROUP BY tag ORDER BY SUMVALUE, tag ASC;
 SELECT * FROM files where tags_json = "[]";
 
 -- simple queries
