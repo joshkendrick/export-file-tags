@@ -1,6 +1,6 @@
 // Author: Josh Kendrick
-// Version: v0.1.0
-// Do whatever you want with this code
+// Version: v0.1.1
+// License: do whatever you want with this code
 
 package main
 
@@ -15,10 +15,6 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-const PRODUCER_SIZE = 200
-const PROCESSORS_SIZE = 10
-const STMTS_SIZE = 100
-const ERRORS_SIZE = 10
 const EXIFTOOL_PATH = "./exiftool.exe"
 const DB_NAME = "media-tags.db"
 
@@ -35,8 +31,8 @@ func main() {
 	// parent dir
 	directory := os.Args[1]
 
-	// produce the files to the channel for the consumers
-	filepaths := make(chan string, PRODUCER_SIZE)
+	// produce the files to the channel for the consumer
+	filepaths := make(chan string)
 	producedCount := 0
 	go func() {
 		filepath.Walk(directory, func(path string, f os.FileInfo, err error) error {
@@ -51,26 +47,21 @@ func main() {
 	}()
 
 	// reporting channel
-	done := make(chan int, PROCESSORS_SIZE)
+	done := make(chan int, 1)
 	// db statements channel
-	dbStmts := make(chan Statement, STMTS_SIZE)
+	dbStmts := make(chan Statement)
 
-	// start the processors
-	for index := 0; index < PROCESSORS_SIZE; index++ {
-		go tagsProcessor(filepaths, done, dbStmts, index+1)
-	}
+	// start the processor
+	go tagsProcessor(filepaths, done, dbStmts)
 
 	// db status channel
 	dbWriterDone := make(chan bool, 1)
 	// start the database writer
 	go tagsWriter(dbStmts, dbWriterDone)
 
-	// wait for processors to finish
-	consumedCount := 0
-	for index := 0; index < PROCESSORS_SIZE; index++ {
-		consumedCount += <-done
-	}
-	// processors are finished, close the database channel
+	// wait for processor to finish
+	consumedCount := <-done
+	// processor is finished, close the database channel
 	close(dbStmts)
 
 	// wait for the dbWriter to finish
@@ -80,22 +71,21 @@ func main() {
 	log.Printf("produced: %d || consumed %d", producedCount, consumedCount)
 }
 
-func tagsProcessor(filepaths <-chan string, done chan<- int, dbStmts chan<- Statement, id int) {
+func tagsProcessor(filepaths <-chan string, done chan<- int, dbStmts chan<- Statement) {
 	count := 0
 
 	// create the exifReader
 	// this isnt flexible, as is will only work on windows with exiftool.exe in same location as execution
 	exifReader, err := exiftool.NewExiftool(exiftool.SetExiftoolBinaryPath(EXIFTOOL_PATH))
 	if err != nil {
-		log.Printf("%4d !!ERROR!! -- %v", id, err)
+		log.Printf("!!ERROR!! -- %v", err)
 	}
 
 	// get a filepath
 	for {
 		filenameAbs, more := <-filepaths
-		// log.Printf("%4d more: %v", id, more)
 		if !more {
-			log.Printf("%4d consumed %d files", id, count)
+			log.Printf("consumed %d files", count)
 			done <- count
 			return
 		}
@@ -108,7 +98,7 @@ func tagsProcessor(filepaths <-chan string, done chan<- int, dbStmts chan<- Stat
 		// there should only be one FileInfo since we call for one filepath
 		fileInfo := exifReader.ExtractMetadata(filenameAbs)[0]
 		if fileInfo.Err != nil {
-			log.Printf("%4d !!ERROR!! -- %v: %v", id, fileNameRel, fileInfo.Err)
+			log.Printf("!!ERROR!! -- %v: %v", fileNameRel, fileInfo.Err)
 			continue
 		}
 
@@ -126,12 +116,12 @@ func tagsProcessor(filepaths <-chan string, done chan<- int, dbStmts chan<- Stat
 			continue
 		}
 
-		log.Printf("%4d found tags - %s :: %v", id, filenameAbs, tags)
+		log.Printf("found tags: %s :: %v", filenameAbs, tags)
 
 		// marshal to json
 		tagsAsJSON, err := json.Marshal(tags)
 		if err != nil {
-			log.Printf("%4d !!ERROR!! -- %v: %v", id, err, tags)
+			log.Printf("!!ERROR!! -- %v: %v", err, tags)
 			continue
 		}
 
