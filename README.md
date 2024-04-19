@@ -13,6 +13,11 @@ Run the executable with a filepath
 
 ### Development
 
+Run the project with
+```
+go run . <file-path>
+```
+
 Due to the sqlite library, I had to install a gcc compiler, so with choco I installed mingw
 
 Also had to set the CGO_ENABLED flag to 1:

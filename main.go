@@ -1,5 +1,5 @@
 // Author: Josh Kendrick
-// Version: v0.1.1
+// Version: v0.1.2
 // License: do whatever you want with this code
 
 package main
@@ -32,7 +32,7 @@ func main() {
 	directory := os.Args[1]
 
 	// produce the files to the channel for the consumer
-	filepaths := make(chan string)
+	filepaths := make(chan string, 100)
 	producedCount := 0
 	go func() {
 		filepath.Walk(directory, func(path string, f os.FileInfo, err error) error {
@@ -47,20 +47,21 @@ func main() {
 	}()
 
 	// reporting channel
-	done := make(chan int, 1)
+	processorDone := make(chan int)
 	// db statements channel
-	dbStmts := make(chan Statement)
+	dbStmts := make(chan Statement, 100)
 
 	// start the processor
-	go tagsProcessor(filepaths, done, dbStmts)
+	go tagsProcessor(filepaths, processorDone, dbStmts)
 
 	// db status channel
-	dbWriterDone := make(chan bool, 1)
+	dbWriterDone := make(chan bool)
 	// start the database writer
 	go tagsWriter(dbStmts, dbWriterDone)
 
 	// wait for processor to finish
-	consumedCount := <-done
+	consumedCount := <-processorDone
+	close(processorDone)
 	// processor is finished, close the database channel
 	close(dbStmts)
 
